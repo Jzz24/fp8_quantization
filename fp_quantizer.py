@@ -13,30 +13,24 @@ class RoundStraightThrough(Function):
 
 round_ste_func = RoundStraightThrough.apply
 
-def get_max_value(num_exponent_bits: int = 4, bias: int = 7):
-    num_fraction_bits = 7 - num_exponent_bits
-    scale = 2**-num_fraction_bits
-    max_frac = 1 - scale
-    max_value = 2 ** (2**num_exponent_bits - 1 - bias) * (1 + max_frac)
-    return max_value
-
 def quantize_to_fpx(x_float: torch.Tensor, 
                     e_bits: torch.Tensor,
                     m_bits: torch.Tensor,
                     maxval: torch.Tensor,
                     minval: torch.Tensor,
                     sign_bits: int=1,) -> torch.Tensor:
+    # According to the paper(Qualcomm AI Research: FP8 Quantization: The Power of the Exponent),
+    # The bias/maxval is calculated as follows:
+    paper_bias = 2**(e_bits - 1) 
+    paper_maxval = (2 - 2**(-m_bits.float())) * 2**(2**e_bits - paper_bias - 1)
 
-    b = 2**(e_bits - 1)
-    expect_maxval = (2 - 2**(-m_bits)) * 2**(2**e_bits - b - 1)
-    
-    bias = 2**e_bits - torch.log2(maxval) + torch.log2(2-2**(-m_bits)) - 1
-    # bias = 7
+    # When m_bits.dtype = torch.int64, 2**(-m_bits) is error ! m_bits need to convert to float dtype
+    bias = 2**e_bits - torch.log2(maxval) + torch.log2(2-2**(-m_bits.float())) - 1
+
     x_clip = torch.clamp(x_float, min=minval, max=maxval)
     log_scales = torch.clamp((torch.floor(torch.log2(torch.abs(x_clip)) + bias)).detach(), 1.0)
     scales = 2.0 ** (log_scales - m_bits - bias)
     fpx = round_ste_func(x_clip / scales) * scales
-    import ipdb; ipdb.set_trace()
     return fpx
 
 if __name__ == "__main__":
@@ -49,5 +43,6 @@ if __name__ == "__main__":
                           maxval=torch.tensor(448),
                           minval=torch.tensor(-448))
 
-    import ipdb; ipdb.set_trace()
-    print (fp8 - x_e4m3.float())
+
+    print("Simulate Quantized FP8 Tensor:", fp8)
+    print("Torch Cast FP8 Tensor:", x_e4m3)
